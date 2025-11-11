@@ -37,7 +37,7 @@ Como las direcciones que utilizamos viven por fuera de los 817MB definidos en lo
     	* closedevice
   - Implementar los mapeos de paginacion void buffer_dma(pd_entry_t* pd) y buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
 
-
+		
 
 Veamos que estructuras vamos a tener que editar:
 -IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
@@ -49,36 +49,36 @@ Veamos que estructuras vamos a tener que editar:
 -SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la direccion virtual en donde va a poder encontrar el buffer
 
 
-Ediciones para las estructuras:
-**idt.c**
-void idt_init() {
-  //… interrupcion externa mapeada al IRQ 40
-  IDT_ENTRY0(40); 
-  // …… Syscalls
-  IDT_ENTRY3(90);
-  IDT_ENTRY3(91);
-}
+	Ediciones para las estructuras:
+	 **idt.c**
+	  void idt_init() {
+ 	 //… interrupcion externa mapeada al IRQ 40
+ 	 IDT_ENTRY0(40); 
+ 	 // …… Syscalls
+ 	 IDT_ENTRY3(90);
+ 	 IDT_ENTRY3(91);
+	}
 
-**task.c**
-typedef struct {
-  int16_t selector;
-  task_state_t state;
+	**task.c**
+	typedef struct {
+	  int16_t selector;
+	  task_state_t state;
 
-  //Agrego lo q mencione arriba
-  uint32_t copyDir;
-  uint8_t mode;
-} sched_entry_t;
+	  //Agrego lo q mencione arriba
+	  uint32_t copyDir;
+	  uint8_t mode;
+	} sched_entry_t;
 
 
-typedef enum {
-  TASK_SLOT_FREE,
-  TASK_RUNNABLE,
-  TASK_PAUSED,
-  // Nuevo estado de tarea
-  TASK_BLOCKED,
-  //Estado para usar despues
-  TASK_KILLED
-} task_state_t;
+	typedef enum {
+	  TASK_SLOT_FREE,
+ 	 TASK_RUNNABLE,
+ 	 TASK_PAUSED,
+  	// Nuevo estado de tarea
+ 	 TASK_BLOCKED,
+ 	 //Estado para usar despues
+ 	 TASK_KILLED
+	} task_state_t;
 
 typedef enum {
   NO_ACCESS,
