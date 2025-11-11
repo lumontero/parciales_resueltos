@@ -483,7 +483,7 @@ tasks.c
 				//task apunta a la entrada del scheduler para esa i
 
 				if (task->status == TASK_PAUSED) continue;//Si la tarea está pausada, la ignora
- 				if (task->mode != NO_ACCESS && task->status != TASK_BLOCKED) continue;
+ 				if (task->mode != NO_ACCESS && task->status != TASK_BLOCKED) continue;// creo q es not esto
  				if (task_ticks[i] <= 100) continue;//Si no superó los 100 ticks todavía, no la consideres ociosa → salta.
 
 				vaddr_t vaddr_to_check = 0;//Variable para guardar la VA a chequear (dónde debería haber leído). Arranca en 0
