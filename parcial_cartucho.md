@@ -29,24 +29,24 @@ Como las direcciones que utilizamos viven por fuera de los 817MB definidos en lo
 - a) Programar la función void buffer_dma(pd_entry_t* pd)
 - b) Programar la función void buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
 
-
-  Entonces tenemos que:
-  - resolver deviceready
-  - implementar las syscalss de acceso al buffer
-    	* opendevice
-    	* closedevice
-  - Implementar los mapeos de paginacion void buffer_dma(pd_entry_t* pd) y buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
+	
+ 		 Entonces tenemos que:
+ 		 - resolver deviceready
+ 		 - implementar las syscalss de acceso al buffer
+    			* opendevice
+    			* closedevice
+ 		 - Implementar los mapeos de paginacion void buffer_dma(pd_entry_t* pd) y buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
 
 		
 ## Resolusion:
-Veamos que estructuras vamos a tener que editar:
--IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
+	Veamos que estructuras vamos a tener que editar:
+	-IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
 	*	Como la interrupcion es de hardware, entonces el kernel es el unico que puede atender a la misma(ring/nivel 0)
 	*	Como las syscalls son de servicios que provee el SO al usuario, entonces estas deben ser capaces de ser llamadas por un usuario, y el codigo  que ejecuten es de nivel 0.
 
--TASK_STATE -> Tenemos que agregarle informacion a la tarea sobre la direccion virtual que va a usar para mapear el buffer. En particular , podemos agregar un estado a una tarea a la cual sea BLOCKED, la cual da un indicio de que esta bloqueada esperando a tener acceso al device.
+	-TASK_STATE -> Tenemos que agregarle informacion a la tarea sobre la direccion virtual que va a usar para mapear el buffer. En particular , podemos agregar un estado a una tarea a la cual sea BLOCKED, la cual da un indicio de que esta bloqueada esperando a tener acceso al device.
 
--SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la direccion virtual en donde va a poder encontrar el buffer
+	-SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la direccion virtual en donde va a poder encontrar el buffer
 
 
 	Ediciones para las estructuras:
@@ -89,7 +89,7 @@ Veamos que estructuras vamos a tener que editar:
 ## Deviceready:
 Cuando se ejecuta esta funcion, entonces el kernel toma posesion de la tarea que estaba ejecutando, y empieza a mapear a todas las tarea que hayan solicitado acceso al area del buffer.
 
-Para eso la funcion deberia:
+	Para eso la funcion deberia:
 	- Iterar sobre todas las tareas definas en el scheduler.
 	- Comprobar si esta esperando para acceder o si ya tiene acceso al buffer
 	- Actualiazar las estructuras de paginacion segun corresponda:
