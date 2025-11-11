@@ -127,10 +127,10 @@ En isr.asm
 En idt.c
 
 	 void deviceready(void){
- 	 	for(int i = 0 ; i < MAX_TASKS ; i++){
+ 	 	for(int i = 0 ; i < MAX_TASKS ; i++){ //Recorre todo el scheduler.
     		sched_entry_t* tarea = &sched_tasks[i];
-    		if(tarea->mode == NO_ACCESS)
-      			continue;
+    		if(tarea->mode == NO_ACCESS) // No solicita acceso al buffer
+      			continue; //si la tarea no pidió el device (NO_ACCESS), no hay nada que hacer.
     		if(tarea->status == BLOCKED){
       			if(tarea->mode == ACCESS_DMA){// Solicita acceso en modo DMA
         			buffer_dma(CR3_TO_PAGE_DIR(task_selecto_to_cr3(tarea->selector)));
@@ -140,7 +140,7 @@ En idt.c
      		}
       			tarea->status = TASK_RUNNABLE; // dejamos la tarea lista para correr en una proxima ejecucion
     }
-    		else{
+    		else{//la tarea no está BLOCKED (o sea, ya tenía acceso de antes).
       			if(tarea->mode == ACCESS_COPY){
        				 paddr_t destino = virt_to_phy(task_selector_to_cr3(tarea->selector), tarea->copyDir);
        				 copy_page((paddr_t)0xF151C000, destino);
@@ -164,7 +164,7 @@ Donde usamos las fuciones auxiliares:
 
 
 
-OPENDEVICE
+## OPENDEVICE
 
 Syscall que permite a las tareas solicitar acceso al buffer segun el tipo configurado.
 
@@ -182,16 +182,17 @@ detecte que el buffer esta listo y se haya realizado el mapeo DMA o la copia cor
 	global isr_90
 	
 	isr_90:
-	pushad
+	pushad  ;salvar todos los registros generales
 	
-	push ecx
-	call opendevice
-	add esp, 4
+	push ecx  ;pasar el parámetro a C (copyDir va en ECX)
+	call opendevice ; opendevice(copyDir)
+	add esp, 4 ;balancear la pila del llamado (sacar el parámetro)
 	
-	call schedd_next_task ;sched_next_task nos va a devolver en ax un selector de tarea distinto al que está ejecutando.
+	call schedd_next_task ;elegir la próxima tarea a ejecutar (RUNNABLE)
+	;sched_next_task nos va a devolver en ax un selector de tarea distinto al que está ejecutando.
 
 	mov word [sched_task_selector], ax
-    jmp far [sched_task_offset]
+    jmp far [sched_task_offset] ;salto FAR: cambia de tarea (con TSS)
 
 	popad
 	iret
@@ -201,12 +202,12 @@ Recordemos que si sched_next_task no encuentra un selector de una tarea de su li
 	idt.c
 
 	void opendevice(unit32_t copyDir){
-		sched_task[current_task].status = BLOCKED;
-		sched_task[current_task].mode = *(unt8_t*)0xACCE5000;
-		sched_task[current_task].copyDir = copyDir;
+		sched_task[current_task].status = BLOCKED; // la bloqueamos
+		sched_task[current_task].mode = *(unt8_t*)0xACCE5000; //leer modo pedido (NO/DMA/COPY)
+		sched_task[current_task].copyDir = copyDir; //guardar VA destino para COPY
 	}
 
-CLOSEDEVICE
+## CLOSEDEVICE
 
 Una vez que la tarea termina de utilizar el buffer, debe indicarlo haciendo usa de esta syscall.
 
@@ -231,9 +232,75 @@ En ella se debe retirar el acceso por DMA o dejar de actualizar la copia, segun 
 
 	void closedevice(void){
 		if(sched_task[current_task].mode == ACCESS_DMA)
-			mmu_unmap_page(rcr3(), (vaddr_t)0xBABAB000);
+			mmu_unmap_page(rcr3(), (vaddr_t)0xBABAB000); 
+			//quita esa traducción VA→PA en el espacio de direcciones de la tarea actual (por eso pasa rcr3()).
 
 		if(sched_task[current_task].mode == ACCESS_COPY)
 			mmu_unmap_page(rcr3(),sched_task[current_task].copyDir);
+			//la tarea tenía su copia privada mapeada en la VA que ella eligió (copyDir, la guardaste en opendevice).Se desmapea esa VA.
 
-		sched_task[current_task].mode = NO_ACCESS;
+		sched_task[current_task].mode = NO_ACCESS; //esta tarea ya no tiene acceso al device.
+		//No toca status (sigue RUNNABLE normalmente; cerrar el device no la bloquea).
+
+
+
+## Funciones de mapeo
+
+Se nos pide implementar el mapeo asociado a los modos de acceso al buffer de video del cartucho.
+
+Recordemos:
+
+ - Si es por DMA entonces tenemos que mapear como solo lectura a 0xBABAB000(virtual) a 0xF151C0000(fisica).
+
+ - Si es por copia, mapeamos la direccion virtual a la direccion fisica pasada por parametro y luego hacemos la copia de la pagina que comienda en 0xF151C000
+
+		void buffer_dma(pd_entry_t pd){
+			mmu_map_page((uint32_t)pd, (vaddr_t)0xBABAB000, (paddr_t)0xF151C000, MMU_U | MMU_P);
+   		}
+
+   		void buffer_copy(pd_entry_t pd, paddr_t phyDir , vaddr_t copyDir){
+   			mmu_map_page((uint32_t)pd, copyDir, phyDir, MMU_U | MMU_W | MMU_P);
+   			copy_page(phyDir, (paddr_t)0xF151C000);
+   		}
+   
+
+
+## Funciones auxiliares
+
+Nos que dan la funciones auxiliares:
+
+ - uint32_t task_selector_to_cr3(uint16_t selector); nos permite entrar al directorio depaginas de una tarea cualquiera en base a su task segment.
+
+ - paddr_t virt_to_phy(unint32_t cr3, vaddr_t virt); devuelvela direccion fisica asociada al cr3 y la direccion virtual pasadas por parametro
+
+
+
+
+
+ 		uint32_t task_selector_to_cr3(uint16_t selector){
+   			uint16_t index = selector >> 3; // sacamos los atributos
+   			gdt_entry_t* taskDescriptor = &gdt[index]; // indexamos en la gdt
+   			tss_t* tss = (tss_t*)((taskDescriptor->base_15_0)|
+			                      (taskDescriptor->base_23_16 << 16) |
+                                  (taskDescriptor->base_31_24 << 24) )
+   			return tss-> cr3;
+   			}
+
+
+
+   		paddr_t cirt_to_phy(uint32_t cr3 , vaddr_t virt){
+
+			uint32_t* cr3 = task_selector_to_cr3(task_id);
+
+   			uint32_t pd_index = VIRT_PAGE_DIR(virtual_address);
+   			uint32_t pt_index = VIRT_PAGE_TABLE(virtual_address);
+
+   			pd_entry_t* pd = (pd_entry_t*)CR3_TO_PAGE_DIR(cr3);
+
+   			pt_entry_t* pt = pd[pd_index].pt << 12;
+
+   			return (paddr_t)(pt[pt_index].page << 12);
+   		}
+   
+
+   
