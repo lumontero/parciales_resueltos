@@ -350,7 +350,7 @@ para cada tarea.
 Creamos el tss de una tarea nivel 0(en tss.c):
 
 	tss_t tss_create_kernel_task(paddr_t code_start) {
- 	 uint32_t stak = mmu_next_free_kernel_page();
+ 	 vaddr_t stak = mmu_next_free_kernel_page();
 	  return (tss_t) {
  	   .cr3 = create_cr3_for_kernel_task(),
   	  .esp = stack + PAGE_SIZE,
