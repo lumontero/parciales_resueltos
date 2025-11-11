@@ -150,18 +150,90 @@ En idt.c
 	} 
 
 Donde usamos las fuciones auxiliares:
+
+
 -uint32_t task_selector_to_CR3(uint16_t selector);
+
  Nos permite encontrar el directorio de páginas de una tarea cualquiera en base a su task segment.
+
 -paddr_t virt_to_phy(uint32_t cr3, vaddr_t virt);
+
  Devuelve la dirección física asociada al cr3 y la dirección virtual pasadas por parámetro.
+ 
  Esta funcion asume que existe un mapeo bajo la direccion virt.
 
 
 
+OPENDEVICE
 
+Syscall que permite a las tareas solicitar acceso al buffer segun el tipo configurado.
 
+En el caso de acceso por copia, la direccion virtual donde realizar la copia estara por el valor
 
+del registro ECX al momento de llamarla.
 
+El sistema no debe retortnar la ejecucion de las tareas que llaman a la syscall hasta que se 
 
+detecte que el buffer esta listo y se haya realizado el mapeo DMA o la copia correspondiente.
 
+	isr.asm
+
+	extern opendevice
+	global isr_90
+	
+	isr_90:
+	pushad
+	
+	push ecx
+	call opendevice
+	add esp, 4
+	
+	call schedd_next_task ;sched_next_task nos va a devolver en ax un selector de tarea distinto al que está ejecutando.
+
+	mov word [sched_task_selector], ax
+    jmp far [sched_task_offset]
+
+	popad
+	iret
+
+Recordemos que si sched_next_task no encuentra un selector de una tarea de su lista, entonces devuelve el selector de la tarea idle.
  
+	idt.c
+
+	void opendevice(unit32_t copyDir){
+		sched_task[current_task].status = BLOCKED;
+		sched_task[current_task].mode = *(unt8_t*)0xACCE5000;
+		sched_task[current_task].copyDir = copyDir;
+	}
+
+CLOSEDEVICE
+
+Una vez que la tarea termina de utilizar el buffer, debe indicarlo haciendo usa de esta syscall.
+
+En ella se debe retirar el acceso por DMA o dejar de actualizar la copia, segun corresponda.
+
+
+	ism.asm
+
+	extern closedevice
+	global isr_91
+
+	isr_91:
+	pushad
+
+	call closedevice
+
+	popad
+	iret
+
+
+	idt.c
+
+	void closedevice(void){
+		if(sched_task[current_task].mode == ACCESS_DMA)
+			mmu_unmap_page(rcr3(), (vaddr_t)0xBABAB000);
+
+		if(sched_task[current_task].mode == ACCESS_COPY)
+			mmu_unmap_page(rcr3(),sched_task[current_task].copyDir);
+
+		sched_task[current_task].mode = NO_ACCESS;
