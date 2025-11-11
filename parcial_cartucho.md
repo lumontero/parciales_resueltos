@@ -28,3 +28,60 @@ Como las direcciones que utilizamos viven por fuera de los 817MB definidos en lo
 ## Ejercicio 2:
 - a) Programar la función void buffer_dma(pd_entry_t* pd)
 - b) Programar la función void buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
+
+
+  Entonces tenemos que:
+  - resolver deviceready
+  - implementar las syscalss de acceso al buffer
+    	* opendevice
+    	* closedevice
+  - Implementar los mapeos de paginacion void buffer_dma(pd_entry_t* pd) y buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
+
+
+
+Veamos que estructuras vamos a tener que editar:
+-IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
+	*	Como la interrupcion es de hardware, entonces el kernel es el unico que puede atender a la misma(ring/nivel 0)
+	*	Como las syscalls son de servicios que provee el SO al usuario, entonces estas deben ser capaces de ser llamadas por un usuario, y el codigo  que ejecuten es de nivel 0.
+
+-TASK_STATE -> Tenemos que agregarle informacion a la tarea sobre la direccion virtual que va a usar para mapear el buffer. En particular , podemos agregar un estado a una tarea a la cual sea BLOCKED, la cual da un indicio de que esta bloqueada esperando a tener acceso al device.
+
+-SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la direccion virtual en donde va a poder encontrar el buffer
+
+
+Ediciones para las estructuras:
+**idt.c**
+void idt_init() {
+  //… interrupcion externa mapeada al IRQ 40
+  IDT_ENTRY0(40); 
+  // …… Syscalls
+  IDT_ENTRY3(90);
+  IDT_ENTRY3(91);
+}
+
+**task.c**
+typedef struct {
+  int16_t selector;
+  task_state_t state;
+
+  //Agrego lo q mencione arriba
+  uint32_t copyDir;
+  uint8_t mode;
+} sched_entry_t;
+
+
+typedef enum {
+  TASK_SLOT_FREE,
+  TASK_RUNNABLE,
+  TASK_PAUSED,
+  // Nuevo estado de tarea
+  TASK_BLOCKED,
+  //Estado para usar despues
+  TASK_KILLED
+} task_state_t;
+
+typedef enum {
+  NO_ACCESS,
+  ACCESS_DMA,
+  ACCESS_COPIA
+} task_access_mode_t;
