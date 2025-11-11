@@ -347,8 +347,191 @@ permite “matar” a aquellas tareas que se aprovechen de la CPU.
 para cada tarea.
 
 
+Creamos el tss de una tarea nivel 0(en tss.c):
+
+	tss_t tss_create_kernel_task(paddr_t code_start) {
+ 	 uint32_t stak = mmu_next_free_kernel_page();
+	  return (tss_t) {
+ 	   .cr3 = create_cr3_for_kernel_task(),
+  	  .esp = stack + PAGE_SIZE,
+  	  .ebp = stack + PAGE_SIZE,
+  	  .eip = (vaddr_t)code_start,
+      .cs = GDT_CODE_0_SEL,
+      .ds = GDT_DATA_0_SEL,
+	  .es = GDT_DATA_0_SEL,
+      .fs = GDT_DATA_0_SEL,
+      .gs = GDT_DATA_0_SEL,
+      .ss = GDT_DATA_0_SEL,
+      .ss0 = GDT_DATA_0_SEL,
+      .esp0 = stack + PAGE_SIZE,
+     .eflags = EFLAGS_IF,
+	 };
+	}
+
+Construye una TSS para un task de kernel (ring 0) que corre siempre en el espacio del kernel.
+
+Reserva una pila de kernel (stack = mmu_next_free_kernel_page()), y setea esp/ebp/esp0 = stack + PAGE_SIZE
+
+cr3 = create_cr3_for_kernel_task() → CR3 con mapeo de kernel. Por qué el killer es una tarea 
+propia del kernel, no hereda nada de userland y debe tener su CR3 de kernel, sus segmentos ring 0
+y su pila ring 0.
+
+Creamos (en tasks.c)
+
+	static int8_t create_task_kill(){
+		//declara una variable para guardar en qué entrada de la GDT vamos a poner el descriptor TSS del killer
+		size_t gdt_is; 
+		//recorre la GDT desde GDT_TSS_START hasta GDT_COUNT buscando un hueco libre
+		for(gdt_id = GDT_TSS_START; gdi_id < GDT_COUNT; gdr_id++){
+			if (gdt[gdt_id].p == 0) break;//gdt[gdt_id].p == 0 significa “entry no presente” → libre para usar.
+			//cuando encuentra una libre, hace break y se queda con ese índice.
+		}
+		// explota si la condicion es falsa
+		kasset(gdt_id < GDT_COUNT, "No hay entradas disponibles en la GDT");
+
+		int8_i task_id = sched_add_task(gdt_id << 3); 
+		//crea una entrada en el scheduler para esta nueva tarea y obtiene su task_id
+		//le pasa al scheduler el selector de TSS que vamos a usar: gdt_id << 3
+
+		tss_task[task_id] = tss_create_kernel_task(&killer_main_loop);
+		//construye la TSS real en memoria para esta tarea de kernel:
+
+		gdt[gdt_id] = tss_gdt_entry_for_task(&tss_task[task_id]);
+		//escribe en la GDT el descriptor de TSS que apunta a la TSS que acabamos de crear
+
+		// sched_tasks[task_id].status = TASK_RUNNABLE; (lo sumo el chat tiene sentido pero nose)
+        // sched_tasks[task_id].mode   = NO_ACCESS;
+
+		return task_id;
+	}
+Busca un slot libre en la GDT para la TSS del killer, mete la TSS, y agrega la tarea al sched_tasks	
+El killer es una tarea más a ojos del scheduler (round-robin).
+
+Creamos (en mmu.c)
+
+	paddr_t create_cr3_for_kernel_task(){
+	//inicializamos el directorio de paginas
+	paddr_t task_page_dir = mmu_next_free_kernel_page(); //ide una página física libre para usarla como Page Directory (PD).
+	zero_page(task_page_dir);
+
+	//Hacemos el identity mapping
+	for( uint32_t i = 0; i < identity_mapping_end; i += PAGE_SIZE){
+		mmu_map_page(task_page_dir; i; i; MMU_P | MMU_W);
+	}
+
+	return task_page_dir;
+	}
+
+Define una función que arma un nuevo directorio de páginas para una tarea de kernel y 
+devuelve su dirección física (eso es lo que va en CR3).
+Crea un Page Directory para el killer e identidad mapea (VA=PA) el rango de kernel que necesita
+El killer debe poder leer/escribir estructuras del kernel y ver memoria física del kernel sin depender de CR3 de userland.
+Cómo lo hubiera deducido: “El killer no puede usar CR3 de usuario; le hago un CR3 propio con identity mapping del kernel”.
+Hacemos identity mapping para que el CR3 del kernel tenga un mapa directo y simple: cualquier 
+página física importante del kernel es accesible en la misma dirección virtual, con permisos solo
+de ring 0. Eso simplifica muchísimo el código (y el TP), y permite que el task_killer y las
+rutinas de MMU trabajen sin mapeos temporales a cada rato.
+
+Rutina del clock
+
+	isr.asm
+
+	extern add_tick_to_task
+	global _isr32
+
+	_ir32:
+		pushad
+
+		call pic_finish1
+		call next_clock
+
+		call add_tick_to_task
+
+		call sched_next_task ;Invoca al scheduler para decidir quién corre ahora
+
+		;...
+
+		popad
+		iret
+
+
+		en sched.c
+
+		int8_t current_task = 0;
+
+		//Un array de contadores: uno por tarea.
+		//Cada entrada acumula cuántos ticks de reloj estuvo en ejecución (RUNNABLE y elegida) desde la última vez que lo reseteaste.
+		static  uint8_t contador_de_ticks[MAX_TASK] = {0};
+
+		void add_tick_to_task(){
+		//Suma 1 al contador de la tarea que estaba corriendo cuando sonó el tick
+			contador_de_ticks[current_task]++;
+		}
 
 
 
+TASK_KILLER
 
-   
+tasks.c
+
+	void killer_main_loop(voud){
+		while(true){ //Bucle eterno. Siempre repite el chequeo
+			for(int i = 0; i < MAX_TASKS; i++){ //Recorre todas las posiciones del arreglo de tareas
+				if(i == current) continue; //Si i es la tarea que está corriendo ahora (el killer mismo o la actual), la salta.
+
+				sched_entry_t* task = &sched_task[i];
+				//task apunta a la entrada del scheduler para esa i
+
+				if (task->status == TASK_PAUSED) continue;//Si la tarea está pausada, la ignora
+ 				if (task->mode != NO_ACCESS && task->status != TASK_BLOCKED) continue;
+ 				if (task_ticks[i] <= 100) continue;//Si no superó los 100 ticks todavía, no la consideres ociosa → salta.
+
+				vaddr_t vaddr_to_check = 0;//Variable para guardar la VA a chequear (dónde debería haber leído). Arranca en 0
+
+				//Define qué VA mirar según el modo
+				if (task->mode == ACCESS_DMA){
+					vaddr_to_check = VADDR_DMA;//la VA fija del buffer, por ej. 0xBABAB000 (VADDR_DMA)
+				}else{
+					vaddr_to_check = task->copyDir;//la VA donde la tarea pidió su copia (task->copyDir
+				}
+
+				//Pide el PTE de esa tarea (task->selector → su TSS/CR3) para la VA elegida. Con el PTE podés mirar el bit Accessed (A).
+				pte_t* pte = mmu_get_pte_for_task(task->selector, vaddr);
+				if(pte->accessed == 0){
+					task->status = TASK_KILLED; //Marca la tarea como “matada”
+				{else{//Si sí accedió (no ociosa)
+					tasks_ticks[i] = 0;//Resetea su contador de ticks
+					pte->accessed = 0;//Limpia el bit Accessed para medir de nuevo la próxima vez
+				//coment del chat Falta: hacer invlpg(vaddr) para que el TLB no mantenga el bit viejo en caché.
+				}
+			}
+		}
+	}
+
+Es la “tarea asesina” del kernel. Corre en un bucle infinito y va revisando a las demás tareas
+para ver si alguna está “al pepe” (ociosa) y hay que matarla.
+
+		
+mmu.c
+
+	pt_entry_t* mmu_get_pte_for_task(uint16_t task_selector; vaddr_t virtual_address) {
+
+		//Con el selector de tarea miro la GDT → descriptor TSS → BASE → TSS, y leo el CR3 de esa tarea.
+		uint32_t* cr3 = task_selector_to_cr3(task_selector);//Ese cr3 es la PA del Page Directory de la tarea
+
+		uint32_t pd_index = VIRT_PAGE_DIR(virtual_address);//pd_index = bits 31..22 (elige qué PDE mirar).
+		uint32_t pt_index = VIRT_PAGE_TABLE(virtual_address);//pt_index = bits 21..12 (elige qué PTE de esa PT).
+
+		//Consigo un puntero al Page Directory de ESA tarea, accesible desde el kernel.
+		//CR3_TO_PAGE_DIR(cr3) te da una VA del kernel que “ve” la página física cuyo inicio es cr3
+		pd_entry_t* pd = (pd_entry_t*)CR3_TO_PAGE_DIR(cr3);
+
+		pt_entry_t* pt = pd[pd_index].pt << 12;//Tomo el PDE (entrada del PD) que apunta a la Page Table
+
+		return (pt_entry_t*) &(pt[pt_index]);
+		//Devuelve la dirección del PTE que corresponde a virtual_address en ESA tarea
+	}
+
+Define una función que devuelve un puntero al PTE (entrada de tabla de páginas) correspondiente a 
+la dirección virtual vaddr dentro del espacio de direcciones de ESA tarea (identificada por su 
+selector de TSS).
