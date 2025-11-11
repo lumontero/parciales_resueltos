@@ -41,12 +41,18 @@ Como las direcciones que utilizamos viven por fuera de los 817MB definidos en lo
 ## Resolusion:
 	Veamos que estructuras vamos a tener que editar:
 	-IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
-	*	Como la interrupcion es de hardware, entonces el kernel es el unico que puede atender a la misma(ring/nivel 0)
-	*	Como las syscalls son de servicios que provee el SO al usuario, entonces estas deben ser capaces de ser llamadas por un usuario, y el codigo  que ejecuten es de nivel 0.
+	*	Como la interrupcion es de hardware, entonces el kernel es el unico que 
+	puede atender a la misma(ring/nivel 0)
+	*	Como las syscalls son de servicios que provee el SO al usuario, entonces estas
+	deben ser capaces de ser llamadas por un usuario, y el codigo  que ejecuten es de nivel 0.
 
-	-TASK_STATE -> Tenemos que agregarle informacion a la tarea sobre la direccion virtual que va a usar para mapear el buffer. En particular , podemos agregar un estado a una tarea a la cual sea BLOCKED, la cual da un indicio de que esta bloqueada esperando a tener acceso al device.
+	-TASK_STATE -> Tenemos que agregarle informacion a la tarea sobre la direccion virtual
+	que va a usar para mapear el buffer. En particular , podemos agregar un estado a una tarea
+	a la cual sea BLOCKED, la cual da un indicio de que esta bloqueada esperando a tener acceso al device.
 
-	-SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la direccion virtual en donde va a poder encontrar el buffer
+	-SCHED_ENTRY -> Esta estructura posse toda la informacion de la tarea. 
+	Podemos agregarle la informacion sobre el modo de acceso que va a tener la tarea y la
+	direccion virtual en donde va a poder encontrar el buffer
 
 
 	Ediciones para las estructuras:
@@ -94,8 +100,12 @@ Cuando se ejecuta esta funcion, entonces el kernel toma posesion de la tarea que
 	- Comprobar si esta esperando para acceder o si ya tiene acceso al buffer
 	- Actualiazar las estructuras de paginacion segun corresponda:
 		* La tarea esta solicitando acceso:
-			# Si es por DMA entonces tenemos que mapear la direccion virtual 0xBABAB000 a la   				direccion fisica 0xF151C0000 con permisos de usuraio y Read-Only.
-			# Si es por copia, mapeamos la direccion virtual pasada por parametro a una nueva 				direccion fisica(en caso de primer mapeo) y hacemos la copia de datos.
+			# Si es por DMA entonces tenemos que mapear la direccion virtual 0xBABAB000 a la 
+			
+			direccion fisica 0xF151C0000 con permisos de usuraio y Read-Only.
+			# Si es por copia, mapeamos la direccion virtual pasada por parametro a una nueva
+			
+			direccion fisica(en caso de primer mapeo) y hacemos la copia de datos.
 		* La tarea ya tiene acceso:
 			# Si es pod DMA no tenemos que hacer nada.
 			# Si es por copia actualizamos la copia.
