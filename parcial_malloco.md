@@ -60,6 +60,86 @@ Ejercicio 1: (50 puntos)
 
 Detallar todos los cambios que es necesario realizar sobre el kernel para que una tarea de nivel usuario pueda pedir memoria y liberarla, asumiendo como ya implementadas las funciones mencionadas. Para este ejercicio se puede asumir que `garbage_collector` está implementada y funcionando.
 
+
+
+# EJERCICOO 1
+
+Recordamos que teenemos:
+
+- void* malloco(size_t size); le damos la cant de memoria a reservar(en bytes) y nos da la dir virtual a partie de la cual se reservo la memoria y da NULL en el caso de que no haya memoria suficiente.
+
+- uint8_t esMemoriaReservada(vaddr_t virt) le damos una direccion virtual y da true si pertenece a un bloque de memoria reservado por malloco, false sino.
+
+- void chau(virtaddr_t virt); le damos una dir virual, si corresponde al comienzo de un bloque reservado con malloco marca esa  reserva para que sea liberada más adelante por una tarea de nivel 0 (garbage_collector)
+
+- reservas_por_tarea* dameReservas(int task_id); le damos un task_id y nos da el puntero al elemento del array que corresponde esa tarea.
+
+La idea seria tener una lista de reservas de tamanio MAX_TASKS que guarde en el lugar de cada tarea otra lista con sus reservas.
+
+Ya contamos con las estructuras reserva_t y estado_reserva_t faltaria gregar la siguiente estructura:
+
+    typedef enum{
+      RESERVA_LIBRE;
+      RESERVA_ACTIVA;
+      RESERVA_MARCADA_LIBERADA;
+      RESERVA_LIBERADA;
+    }
+
+En la cual deficinos los distintos posibles estados de una resera.
+
+Ahora para inicializar nuestra lista de reservas por tareas, la idea seria que la cantidad de filas sea igual a la cantidad de tareas(sin garbage_collector) y para la cantidad de columnas como que cada tarea va a tener su propia cantidad las cuales pueden diferir entre ellas por lo que definimos CANT_BLOQUES_MAX que seria la mayor cantidad de bloque que una tarea podria reservar, entonces las tareas que reserven menos de esa cantidad van a tener sus bloque y en los otros lugares que sobren todos en 0.
+Lo inicializo en 0 ya que como que "arrancamos" sin que ninguna tarea haya reservado ningun bloque.
+Por lo que nos quedaria algo asi:
+
+    reserva_t reservas[MAX_TASKS][CANT_BLOQUES_MAX] = {{0}},
+
+
+Tenemos que creer una entrada en la IDT para las syscalls(malloco y chau). Para la syscall malloco, defino que su id es 90 y para la de chau que sea 91. Ninguno de los dos se solapa con ningun codigo de exepcion de ninguna de las interrupciones que tenemos ya definidas en el tp.
+Enronces en idt.c nos quedaria agregar esto:
+
+    idt.c
+
+    void idt_t(){
+      //....
+      IDT_ENTRY3(90); //malloco
+      IDT_ENTRY3(91); //chau
+      //....
+    }
+Deben ser con DPL = 3 para que puedan ser invocadas por cualquier tarea a nivel de usuario.
+
+La idea de la rutina de atencion de ambas syscalls es que se asume que el parametro de entrada va a estar en el registro edi de la tarea, asique lo pusheamos y luego llamamos a las funciones malloco y chay definidas en c
+
+    isr.asm
+
+    extern malloco
+    extern chau
+
+    global _isr90
+    global _isr91
+
+    _isr90:
+      pushad ;salvar todos los registros generales
+
+      push edi ;pasar el parámetro a C (size va en EDI)
+      call malloco ; malloco(size)
+      add esp , 4 ;balancear la pila del llamado (sacar el parámetro)
+
+      mov [esp + offset_EAX] , eax ; la funcion malloco devuelve la direccion virtual a partir la cual se reservo la memoria en eax
+
+      popad
+      iret
+
+      _isr91:
+      pushad
+
+      push edi
+      call chau
+
+      add esp , 4
+
+      popad
+      iret
+
 Ejercicio 2: (25 puntos)
 
 Detallar todos los cambios que es necesario realizar sobre el kernel para incorporar la tarea `garbage_collector` si queremos que se ejecute una vez cada 100 ticks del reloj. Incluir una posible implementación del código de la tarea.
