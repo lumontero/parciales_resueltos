@@ -38,7 +38,7 @@ Como las direcciones que utilizamos viven por fuera de los 817MB definidos en lo
   - Implementar los mapeos de paginacion void buffer_dma(pd_entry_t* pd) y buffer_copy(pd_entry_t* pd, paddr_t phys, vaddr_t virt)
 
 		
-
+## Resolusion:
 Veamos que estructuras vamos a tener que editar:
 -IDT -> Tenemos que agregar una interrupcion por hardware y dos syscalls
 	*	Como la interrupcion es de hardware, entonces el kernel es el unico que puede atender a la misma(ring/nivel 0)
@@ -80,8 +80,24 @@ Veamos que estructuras vamos a tener que editar:
  	 TASK_KILLED
 	} task_state_t;
 
-typedef enum {
-  NO_ACCESS,
-  ACCESS_DMA,
-  ACCESS_COPIA
-} task_access_mode_t;
+    typedef enum {
+     NO_ACCESS,
+ 	 ACCESS_DMA,
+	 ACCESS_COPIA
+	} task_access_mode_t;
+
+## Deviceready:
+Cuando se ejecuta esta funcion, entonces el kernel toma posesion de la tarea que estaba ejecutando, y empieza a mapear a todas las tarea que hayan solicitado acceso al area del buffer.
+
+Para eso la funcion deberia:
+	- Iterar sobre todas las tareas definas en el scheduler.
+	- Comprobar si esta esperando para acceder o si ya tiene acceso al buffer
+	- Actualiazar las estructuras de paginacion segun corresponda:
+		* La tarea esta solicitando acceso:
+			# Si es por DMA entonces tenemos que mapear la direccion virtual 0xBABAB000 a la   				direccion fisica 0xF151C0000 con permisos de usuraio y Read-Only.
+			# Si es por copia, mapeamos la direccion virtual pasada por parametro a una nueva 				direccion fisica(en caso de primer mapeo) y hacemos la copia de datos.
+		* La tarea ya tiene acceso:
+			# Si es pod DMA no tenemos que hacer nada.
+			# Si es por copia actualizamos la copia.
+
+
