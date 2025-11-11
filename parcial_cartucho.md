@@ -256,11 +256,21 @@ Recordemos:
 
 		void buffer_dma(pd_entry_t pd){
 			mmu_map_page((uint32_t)pd, (vaddr_t)0xBABAB000, (paddr_t)0xF151C000, MMU_U | MMU_P);
+   			// (uint32_t)pd CONTENIDO A CARGAR EN CR3
+   			//(vaddr_t)0xBABAB000 la direccion virtual que se ha de traducir de phy
+   			//(paddr_t)0xF151C000 la direccion fisica que debe ser accedida(direc destinio)
+   			// MMU_U | MMU_P atributos
    		}
 
    		void buffer_copy(pd_entry_t pd, paddr_t phyDir , vaddr_t copyDir){
    			mmu_map_page((uint32_t)pd, copyDir, phyDir, MMU_U | MMU_W | MMU_P);
+   			// (uint32_t)pd CONTENIDO A CARGAR EN CR3
+   			//copyDir la direccion virtual que se ha de traducir de phy
+   			//phyDir la direccion fisica que debe ser accedida(direc destinio)
+   			// MMU_U | MMU_W | MMU_P atributos
    			copy_page(phyDir, (paddr_t)0xF151C000);
+   			//phyDir la direccion fisica , pagina donde queremos copiar el comtenido
+   			//(paddr_t)0xF151C000 la direccion fisica cuyo contenido queremos copiar
    		}
    
 
@@ -280,27 +290,62 @@ Nos que dan la funciones auxiliares:
  		uint32_t task_selector_to_cr3(uint16_t selector){
    			uint16_t index = selector >> 3; // sacamos los atributos
    			gdt_entry_t* taskDescriptor = &gdt[index]; // indexamos en la gdt
+   			//taskDescriptor guarda la dirección de la entrada gdt[index](apunta a una gdt_entry_t)
    			tss_t* tss = (tss_t*)((taskDescriptor->base_15_0)|
 			                      (taskDescriptor->base_23_16 << 16) |
                                   (taskDescriptor->base_31_24 << 24) )
-   			return tss-> cr3;
+   			//recontruimos la base del tss decriptor que apunta al comienzo de la tss
+   			return tss-> cr3; // agarro el cr3 de la tss
    			}
 
 
 
-   		paddr_t cirt_to_phy(uint32_t cr3 , vaddr_t virt){
+   		paddr_t virt_to_phy(uint32_t cr3 , vaddr_t virt){
 
-			uint32_t* cr3 = task_selector_to_cr3(task_id);
+   			uint32_t pd_index = VIRT_PAGE_DIR(virt); //elige qué PDE usar.
+   			uint32_t pt_index = VIRT_PAGE_TABLE(virt); //elige qué PTE usar dentro de esa PT.
 
-   			uint32_t pd_index = VIRT_PAGE_DIR(virtual_address);
-   			uint32_t pt_index = VIRT_PAGE_TABLE(virtual_address);
-
-   			pd_entry_t* pd = (pd_entry_t*)CR3_TO_PAGE_DIR(cr3);
+   			pd_entry_t* pd = (pd_entry_t*)CR3_TO_PAGE_DIR(cr3); //Convierte el cr3 en un puntero al Page Directory de ESA tarea
+   			// pd = puntero a la page directpry de esa tarea
 
    			pt_entry_t* pt = pd[pd_index].pt << 12;
+   			//Toma el PDE correspondiente y obtiene la dirección base de la Page Table
+   			// el campo .pt guarda el los 20 bits mas altos(address of page table) entonces
+   			// << 12 shifteamos 12 para convertirlo en direccion base alineada a la pt
 
    			return (paddr_t)(pt[pt_index].page << 12);
+   			//Toma el PTE dentro de esa PT y devuelve la dirección base física de la página de datos
    		}
    
+
+
+
+
+
+
+
+# EXTRA
+
+Queremos agregar una nueva tarea
+
+Pasos a realizar
+
+(Estructuras) Debemos: 
+
+● Agregar una entrada en la GDT con la TSS de la nueva tarea a ejecutar. 
+
+● Agregar una entrada de tarea en el scheduler. 
+
+● Agregar alguna estructura adicional para que se vayan contando los ticks que pasan. 
+
+(Funciones): 
+
+● Tenemos que implementar el código para la tarea, la cual ejecuta siempre el mismo código y 
+permite “matar” a aquellas tareas que se aprovechen de la CPU. 
+
+● Tenemos que modificar la rutina del clock para que cuente la cantidad de ciclos que pasaron 
+para cada tarea.
+
+
 
    
