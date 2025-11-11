@@ -124,3 +124,44 @@ En isr.asm
 			popad
 			iret
 					
+En idt.c
+
+	 void deviceready(void){
+ 	 	for(int i = 0 ; i < MAX_TASKS ; i++){
+    		sched_entry_t* tarea = &sched_tasks[i];
+    		if(tarea->mode == NO_ACCESS)
+      			continue;
+    		if(tarea->status == BLOCKED){
+      			if(tarea->mode == ACCESS_DMA){// Solicita acceso en modo DMA
+        			buffer_dma(CR3_TO_PAGE_DIR(task_selecto_to_cr3(tarea->selector)));
+      		}
+      			if(tarea->mode == ACCESS_COPY){// Solicita acceso en modo por copia
+      				  buffer_copy(task_selecto_to_cr3(tarea->selector), mmu_next_user_page(), tarea->copyDir);
+     		}
+      			tarea->status = TASK_RUNNABLE; // dejamos la tarea lista para correr en una proxima ejecucion
+    }
+    		else{
+      			if(tarea->mode == ACCESS_COPY){
+       				 paddr_t destino = virt_to_phy(task_selector_to_cr3(tarea->selector), tarea->copyDir);
+       				 copy_page((paddr_t)0xF151C000, destino);
+      }
+    }
+	  }
+	} 
+
+Donde usamos las fuciones auxiliares:
+-uint32_t task_selector_to_CR3(uint16_t selector);
+ Nos permite encontrar el directorio de páginas de una tarea cualquiera en base a su task segment.
+-paddr_t virt_to_phy(uint32_t cr3, vaddr_t virt);
+ Devuelve la dirección física asociada al cr3 y la dirección virtual pasadas por parámetro.
+ Esta funcion asume que existe un mapeo bajo la direccion virt.
+
+
+
+
+
+
+
+
+
+ 
