@@ -110,4 +110,17 @@ Cuando se ejecuta esta funcion, entonces el kernel toma posesion de la tarea que
 			# Si es pod DMA no tenemos que hacer nada.
 			# Si es por copia actualizamos la copia.
 
+Definimos el handler en asm
 
+En isr.asm		
+
+		extern deviceready
+		global isr_40
+
+		isr_40:
+			pushad
+			call pic_finish
+			call deviceready
+			popad
+			iret
+					
