@@ -345,7 +345,26 @@ Ncesitamos que la tarea garbage_collector se ejecute periodicamente, pero sin ro
     //...
     }
 
+nunca hice la tarealoop(no la cheque es la de ine)
 
+		void tarea_garbage(){
+    while(true){
+        for(int i = 0; i < MAX_TASKS; i++){
+            for(int j = 0; j < CANT_NECESARIA; j++){
+                if (reservas[i][j].estado == en_desuso){
+                    uint32_t cr3 = tss_tasks[i].cr3;
+                    vaddr_t direc_bloque = reservas[i][j].inicio;
+                    for(direc_bloque = reservas[i][j].inicio, direc_bloque < reservas[i][j].fin, direc_bloque++){
+                        if (esta_mapeada(cr3, direc_bloque)){                     
+                            mmu_unmap_page(cr3, direc_bloque);
+                        }  
+                    }                   
+                    reservas[i][j].estado == liberada;
+                }
+            }
+        }
+    }
+    }
     
 Ejercicio 3:
 
