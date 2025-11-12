@@ -215,21 +215,28 @@ taskGarbageCollector.c
     #include "../sched.h"
     #include "tasks.h"
 
-    void gc_main_loop(void) {
+    void gc_main_loop(void) {//la tarea garbage corre en buble infinito
 	    while (true)
 	  {
-		    for (int i = 0; i < MAX_TASKS; i++) {
-		    	if (i == current_task) continue;
+		    for (int i = 0; i < MAX_TASKS; i++) {//recorremos todas las tareas
+		    	if (i == current_task) continue; // si es la que esta corriendo ahora no hacemos nada
+				//Copia la entrada del scheduler de esa tarea a una variable local task. (Ojo: es copia, no puntero).
 		    	sched_entry_t task = sched_tasks[i];
+
+				//Pide la tabla de reservas de esa tarea. Hace selector >> 3 para pasar de selector TSS a índice GDT (quita RPL y TI)
 		    	reservas_por_tarea* reservas = dameReservas(task.selector >> 3);
 
-	    		for (int j = 0; j < reservas->reservas_size; j++) {
-		    		reserva_t* reserva = &reservas->array_reservas[j];
-		    		if(reserva->estado == 2) {
+	    		for (int j = 0; j < reservas->reservas_size; j++) {//Recorre todas las reservas de esa tarea
+				
+		    		reserva_t* reserva = &reservas->array_reservas[j];//puntero al array de reservas de la tarea
+					
+		    		if(reserva->estado == 2) {//RESERVA_MARCADA_LIBERAR
+
+						//Desmapea página por página todo el rango [virt, virt+tamanio)
 		    			for (int page_addr = reserva->virt; page_addr < reserva->virt+reserva->tamanio;       page_addr+=PAGE_SIZE) {
 		    				mmu_unmap_page(task_selector_to_cr3(task.selector), page_addr);
 		    			}
-		    			reserva->estado = 3;
+		    			reserva->estado = 3;//la marco como liberada
 		    		}
 	    		}
 	    	}
