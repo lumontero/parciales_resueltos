@@ -237,23 +237,25 @@ uint8_t sched_current_is_blocked(void) {
 
 
 ```C
-  void abandona_pareja(){
+  void abandonar_pareja(){
     if(parejas[current_task] != 0){
-        mmu_unmap_page(rcr3(), 0x0C0C00000);
         if(!es_lider(current_task)){
+          for(vaddr_t virt = 0xC0C00000; virt < 4MB, virt+=PAGE_SIZE){
+          mmu_unmap_page(rcr3(),virt );
+          }
           romper_pareja();
         }
-        else{//es lider
-              if(parejas[current_task]->pareja_id != -1){ //si tenia pareja
-                sched_tasks[current_task].state = TASK_BLOCKED;
-                cambiar_tarea();
-             }
-              else{
-                parejas[current_task] = 0;
+        //es lider
+        if(parejas[current_task]->pareja_id != -1){ //si tenia pareja
+           sched_tasks[current_task].state = TASK_BLOCKED;
+           cambiar_tarea();
+         }
+         for(vaddr_t virt = 0xC0C00000; virt < 4MB, virt+=PAGE_SIZE){
+          mmu_unmap_page(rcr3(),virt );
+       }
+         parejas[current_task] = 0;
               }
         }
-     }
-  }
 ```
 
 ```A
@@ -269,8 +271,154 @@ cambiar_tarea:
   ret
 ```
 
+Cuando implementamos lazy allocation no reservamos marcos (frames) ni llenamos las tablas de paginación al momento de “pedir” memoria, sino recién cuando se usa. Por eso, antes del primer acceso a esa dirección virtual, no existe una entrada válida en las tablas (o está marcada como no presente). Entonces, al leer/escribir esa VA por primera vez, el procesador dispara un Page Fault. En el handler aprovechamos ese evento para: pedir un frame libre, ponerlo en cero, y mapear la página en la VA que falló con los permisos que correspondan. A partir de ahí, los siguientes accesos ya no fallan.
+
+En isr.asm tenemos:
+
+```C
+;; Rutina de atención de Page Fault ISRE 14 ; Descomentar esta rutina en la parte 3 (paginación)
+;; -------------------------------------------------------------------------- ;;
+global _isr14
+
+_isr14:
+  pushad
+  mov eax, cr2
+  push eax
+
+  call page_fault_handler
+  add esp, 4
+
+  cmp al, 1
+  je .atendioPageFault
+
+  call kernel_exception
+  jmp $
+	
+  .atendioPageFault:
+
+  popad
+  add esp, 4
+	iret
+```
+
+Modifiquemos el page_fault_handler
+
+```C
+bool page_fault_handler(vaddr_t virt) {
+  print("Atendiendo page fault...", 0, 0, C_FG_WHITE | C_BG_BLACK);
+  bool res = false;
+  if(parejas[current_task] != 0 && virt >= 0xC0C00000 && virt < 0xC0C00000 + 4MB){
+      uint32_t cr3 = rcr3();
+      paddr_t phy = mm_next_free_user_page();
+      zero_page(phy);
+      res = true;
+      task_id pareja_de_actual = pareja_de_actual();
+      if(es_lider(current_task)){
+          mmu_map_page(tss_tasks[pareja_de_actual].cr3, virt, phy, MMU_U | MMU_P)
+          mmu_map_page(cr3, virt, phy, MMU_W | MMU_U | MMU_P )
+      }else{
+          mmu_map_page(cr3, virt, phy,  MMU_U | MMU_P);
+          mmu_map_page(tss_tasks[pareja_de_actual].cr3, virt, phy, MMU_W | MMU_U | MMU_P )
+       }
+    }
+    //....  lo q teniamos en el tp para atender los otros page fault 
+  }
+  
+
+
+
+```
+
+
+
+
 2. **(20 pts)** Implementar `conformar_pareja(task_id tarea)` y `romper_pareja()`
+
+```C
+Implementemos conformar_pareja(task_id tarea)
+```
+
+```C
+void conformar_pareja(task_id tarea){
+ if(id_tarea == 0){
+  parejas[current_task] = 0;
+}
+ else{
+   parejas[tarea]->pareja_id = current_task;
+   parejas[current_task] = parejas[tarea]
+   sched_tasks[tarea].state = TASK_RUNNABLE;
+ }
+}
+```
+
+
+```C
+Implementemosvoid romper_pareja()
+```
+
+
+```C
+//current_task no es lider cuando la llamamos
+void romper_pareja(){
+    pareja_t* p = parejas[current_task];
+    if(p == 0) return; //no tenia pareja
+
+     //si le lider estaba bloqueado lo desbloqueamos 
+    if(sched_tasks[parejas[current_task]->lider_id].state == TASK_BLOCKED){
+         sched_tasks[parejas[current_task]->lider_id].state = TASK_RUNNABLE;
+      }
+    p->pareja_id = -1;
+    parejas[current_task] = 0;
+    parejas[p->lider_id] = 0;
+    //free()?
+}
+```
+
+
 3. **(10 pts)** Implementar `pareja_de_actual()`, `es_lider(task_id tarea)` y `aceptando_pareja(task_id tarea)`
+
+```C
+Implementemos task_id  pareja_de_actual()
+```
+
+```C
+task_id  pareja_de_actual(){
+   if(parejas[current_task] != 0){//la tarea actual esta en pareja
+      if(es_lider(current_task)){
+         return parejas[current_task]->pareja_id
+      }else{
+         return parejas[current_task]->lider_id
+       }
+    }
+    return 0;
+}
+```
+```C
+Implementemos es_lider(task_id tarea)
+```
+
+```C
+bool  es_lider(task_id tarea){
+      return parejas[tarea]->lider_id == tarea
+  
+}
+```
+
+```C
+Implemento aceptando_pareja(task_id tarea)
+```
+
+```C
+bool aceptando_pareja(task_id tarea){
+   bool res = 0;
+   if(parejas[tarea] == 0 or parejas[tarea]->pareja_id == -1){
+     res = 1
+   }
+    return res;
+}
+```
+
+
 
 #### Parte 2: monitoreo de la memoria de las parejas (20 pts)
 
@@ -281,6 +429,53 @@ La firma esperada de la función es la siguiente:
 ```c
 uint32_t uso_de_memoria_de_las_parejas();
 ```
+
+
+
+
+``` C
+uint32_t uso_de_memoria_de_las_parejas();{
+uint32_t cant = 0;
+uint8_t fue_contado[MAX_TASKS] = {0};
+
+ for(int i = 0, i < MAX_TASKS, i++){
+    pareja_t* pareja = parejas[i];
+    if(pareja != 0){
+      if(!(fue_contado[pareja->lider])){
+      //ahora queremos contar la cantidad de paginas usadas por esta pareja
+      for(int j = 0xC0C00000, j < 0xC0C00000 + 4MB, j+= PAGE_SIZE){
+         pt_entry_t* pte_lider = mmu_get_pte_for_task(pareja->lider_id, j);
+         pt_entry_t* pte_pareja = mmu_get_pte_for_task(pareja->pareja, j);
+         if(pte_lider->accessed || pte_pareja->accessed ){
+            cant += 1;
+        }
+        fue_contado[pareja->lider_id] = 1;
+        fue_contado[pareja->pareja_id] = 1;
+      }
+      }
+   }
+  }
+  return cant * PAGE_SIZE;
+}
+```
+
+```C
+pt_entry_t* mmu_get_pte_for_task(uint16_t task_id, vaddr_t virtual_address) {
+
+ uint32_t* cr3 = task_selector_to_cr3(task_id);
+ uint32_t pd_index = VIRT_PAGE_DIR(virtual_address);
+ uint32_t pt_index = VIRT_PAGE_TABLE(virtual_address);
+ pd_entry_t* pd = (pd_entry_t*)CR3_TO_PAGE_DIR(cr3);
+
+ pt_entry_t* pt = pd[pd_index].pt << 12;
+ return (pt_entry_t*) &(pt[pt_index]);
+}
+```
+
+
+
+
+
 
 Tengan en consideración los siguientes puntos:
 - Cuando `abandonar_pareja` deja a una pareja sin participantes los recursos asociados cuentan como liberados.
