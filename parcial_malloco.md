@@ -346,6 +346,13 @@ Ncesitamos que la tarea garbage_collector se ejecute periodicamente, pero sin ro
     }
 
 nunca hice la tarealoop(no la cheque es la de ine)
+La implementacion de la tarea_garbage va en un while(true) como todas las tareas asi se sigue ejecutando en loop infinito para dejarla "congelada" de forma segura.
+
+El mecanismo de la tarea es el siguiente:
+
+Recorre todo el array de arrays de reservas y para cada bloque se fija si esta en desuso en cuyo caso si se habia mapeado antes alguna direccion virtual perteneciente al bloque, esta se desmapea, y luego se pone a la reserva con estado = liberada. Si la reserva no estaba en desuso no hace nada y sigue recorriendo.
+
+Para desmapear todas las direcciones pertenecientes al bloque hago un for que recorre cada direc y se fija si esta mapeada, si es asi, la desmapea, para esto uso el cr3 de la tarea i que este mirando el cual saco de tss_tasks[i].cr3.
 
 		void tarea_garbage(){
     while(true){
