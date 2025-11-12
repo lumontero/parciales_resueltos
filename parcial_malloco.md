@@ -105,6 +105,14 @@ Enronces en idt.c nos quedaria agregar esto:
       IDT_ENTRY3(91); //chau
       //....
     }
+
+	isr.h
+	//....
+	void _isr90();
+	void _isr91();
+	//....
+
+	
 Deben ser con DPL = 3 para que puedan ser invocadas por cualquier tarea a nivel de usuario.
 
 La idea de la rutina de atencion de ambas syscalls es que se asume que el parametro de entrada va a estar en el registro edi de la tarea, asique lo pusheamos y luego llamamos a las funciones malloco y chay definidas en c
