@@ -184,10 +184,13 @@ Ahora debemos cambiar el comportamiento del isr14 (page fault) para que en caso 
     mov eax, cr2
     push eax
     call page_fault_handler
+	add esp,4
     cmp eax, 0
     jne .fin
     .ring0_exception:
+	dword [current_task] ; pasar el ID de la tarea actual
     call sched_kill_task
+	add esp,4
     call sched_next_task
 
     mov word [sched_task_selector], ax
